@@ -66,15 +66,12 @@ def simulate_until_death(n, Q=Q):
         n: int - number of subjects (women) to simulate.
         Q: torch.Tensor [shape (m x m)] - transition matrix for CTMC.
     Returns: 
-        freqs: torch.Tensor [shape (t? x m)] - length t? (variable length) 
-            frequencies for each simulated transition point.
         time_enter_state: torch.Tensor [shape (n x m)] - timestamps where 
             each subject has entered each state. 
             If state is not entered, time is -inf.
     """
     all_w_idx = torch.arange(n)
     women = init_women(n, s0=0)
-    freqs = [women.sum(dim=0)]
     time_enter_state = torch.zeros_like(women,dtype=torch.double)
     time_enter_state[:,1:] = -torch.inf
     times = None
@@ -82,11 +79,10 @@ def simulate_until_death(n, Q=Q):
         women, times = next_state(women,times,Q=Q)
         states = women.nonzero(as_tuple=True)[1]
         time_enter_state[all_w_idx,states] = times
-        freqs.append(women.sum(dim=0))
 
-    return torch.tensor(freqs),time_enter_state
+    return time_enter_state
 
-freqs,time_enter_state = simulate_until_death(n=1_000)
+time_enter_state = simulate_until_death(n=1_000)
 
 #%%
 fig,ax = plt.subplots(1,1,figsize=(15,6))
@@ -169,7 +165,7 @@ Q2 = torch.tensor([
 ])
 
 
-freqs2,time_enter_state2 = simulate_until_death(n=1_000, Q=Q2)
+time_enter_state2 = simulate_until_death(n=1_000, Q=Q2)
 
 #%%
 
