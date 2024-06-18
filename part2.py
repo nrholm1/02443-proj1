@@ -1,5 +1,5 @@
 #%%
-import torch
+import torch, scipy
 import torch.distributions as td
 import matplotlib.pyplot as plt
 from seaborn import set_style
@@ -97,7 +97,7 @@ plt.savefig("img/part2/lifetime_distribution.pdf")
 
 # %%
 # ? times where it reappeared distantly
-s3_times = time_enter_state[:,3]
+s3_times = time_enter_state[:,2]
 # ? 0 <= times <= 30.5 is where it reappeared distantly in the specified time frame
 num_reappeared = ((0 <= s3_times) * (s3_times <= 30.5)).sum()
 
@@ -114,7 +114,7 @@ ones = torch.ones(4,1)
 F = lambda t: (1 - p0@torch.linalg.matrix_exp(Qs*t)@ones).item()
 
 sorted_sim_ts = torch.sort(time_enter_state[:,-1])[0]
-ratio_dead_linspaced = torch.linspace(0,1,n)
+ratio_dead = (1 - torch.linspace(1,0,1001))[1:]
 aCDF = torch.tensor([F(t) for t in sorted_sim_ts])
 
 simPMF = torch.histc(sorted_sim_ts, bins=n) / n
@@ -134,6 +134,31 @@ ax.set_title(f"CDF comparison using {n} simulated women")
 plt.tight_layout()
 plt.savefig("img/part2/cdf_comp.pdf")
 #%%
+mean_lifetime = torch.mean(sorted_sim_ts)
+std_lifetime = torch.std(sorted_sim_ts) 
+n = len(sorted_sim_ts)
+
+
+confidence_level = 0.95
+
+z_score = scipy.stats.norm.ppf(1 - (1 - confidence_level) / 2)
+mean_conf_interval = (mean_lifetime - z_score * (std_lifetime / torch.sqrt(torch.tensor(n, dtype=torch.float32))),
+                      mean_lifetime + z_score * (std_lifetime / torch.sqrt(torch.tensor(n, dtype=torch.float32))))
+
+# Confidence interval for the standard deviation
+alpha = 1 - confidence_level
+chi2_lower = scipy.stats.chi2.ppf(alpha / 2, n - 1)
+chi2_upper = scipy.stats.chi2.ppf(1 - alpha / 2, n - 1)
+std_conf_interval = (torch.sqrt((n - 1) * std_lifetime**2 / chi2_upper),
+                     torch.sqrt((n - 1) * std_lifetime**2 / chi2_lower))
+
+# Output results
+print(f"Mean Lifetime: {mean_lifetime.item():.2f}")
+print(f"Mean Confidence Interval: ({mean_conf_interval[0].item():.2f}, {mean_conf_interval[1].item():.2f})")
+print(f"Standard Deviation: {std_lifetime.item():.2f}")
+print(f"Standard Deviation Confidence Interval: ({std_conf_interval[0].item():.2f}, {std_conf_interval[1].item():.2f})")
+
+
 from scipy.stats import chisquare
 
 
