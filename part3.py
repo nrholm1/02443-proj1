@@ -228,7 +228,7 @@ def simulate_to_replicate_time_series(time_series, q_matrix):
             time_enter_state_before = time_enter_state.clone()
 
 
-            current_woman, current_times = next_state(current_woman,current_times,Q=Q)
+            current_woman, current_times = next_state(current_woman,current_times,Q=q_matrix)
             states = current_woman.nonzero(as_tuple=True)[1]
             time_enter_state[all_w_idx,states] = current_times
             
@@ -282,8 +282,27 @@ def initate_q_matrix():
     return q_matrix
 
 
+def time_series_to_enter_state(time_s):
+    current_state = 0
+    updated_time_series = torch.ones(5) - torch.inf
+    updated_time_series[0] = 0.0
+
+    while(current_state != 4):
+        next_id   = find_next_state_change(current_state, time_s)
+        next_state = int(time_s[next_id].item())
+        updated_time_series[next_state] = next_id*48
+        current_state = next_state
+    return updated_time_series
+
+def approximate_q(time_series_):
+    approx_time_enter = []
+    for i in range(time_series_.shape[0]):
+        approx_time_enter.append(time_series_to_enter_state(time_series_[i]))
+    return compute_q(torch.stack(approx_time_enter))
+
+
 def optimize(time_series_input):
-    q_matrix = initate_q_matrix()
+    q_matrix = approximate_q(time_series_input)
     while(True):
         new_time_enter_state = simulate_to_replicate_time_series(time_series_input, q_matrix)
         print("Completed simulation!")
@@ -292,7 +311,7 @@ def optimize(time_series_input):
             return new_q
         q_matrix = new_q
 
-
+# time_series_to_enter_state(time_series[0])
 optimize(time_series)
 
 
