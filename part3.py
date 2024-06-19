@@ -3,6 +3,9 @@ import torch
 import torch.distributions as td
 import scipy.stats as stats
 
+from sympy import latex
+from IPython.display import display, Math
+
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from seaborn import set_style
@@ -139,14 +142,19 @@ plt.rc('ytick',  labelsize=17)    # fontsize of the tick labels
 plt.rc('legend',  fontsize=25)    # legend fontsize
 plt.rc('figure', titlesize=25)   # fontsize of the figure title
 
+colors = ['fuchsia','limegreen','dodgerblue','y','orange']
 
 fig,ax = plt.subplots(1,1,figsize=(15,6))
-ax.step(torch.arange(time_series.shape[1]), time_series[:q].t(), linewidth=3)
+
+for i,tsi in enumerate(time_series[4*q:5*q]):
+    ax.scatter(torch.arange(time_series.shape[1]), tsi, linewidth=3, color=colors[i], alpha=.8, marker='s')
+    ax.plot(torch.arange(time_series.shape[1]), tsi, linewidth=3, color=colors[i], alpha=.3, linestyle='--')
 ax.set_yticks([i for i in range(5)],[i for i in range(1,6)])
 xticks = torch.arange(time_series.shape[1])
 ax.set_xticks(xticks, [(xt*obs_freq).long().item() for xt in xticks])
 ax.set_xlabel("$t$")
 ax.set_ylabel("State")
+ax.set_xlim(left=-.25, right=10)
 
 ax.set_title(f"Time series of the state of (subset of) {q} women")
 
@@ -178,8 +186,8 @@ def compute_q(time_enter):
 
 
 def find_next_state_change(current_state, timeseries):
-    next_state = list(filter(lambda x: x > current_state, timeseries.tolist()))[0]
-    return timeseries.tolist().index(next_state)
+    next_state_index = (timeseries > current_state).nonzero(as_tuple=True)[0].min().item()
+    return next_state_index
 
 
 def time_series_to_enter_state(time_s):
@@ -211,22 +219,34 @@ def init_Q_random(scale=1e-3):
     return Q0
 
 
-def simulate_for_t(t, n, women=None, time_enter_state=None, Q=Q):
+def init_Q_const(c=1e-3):
+    Q0 = torch.zeros(5,5)
+    triu_idx = torch.triu_indices(5,5,offset=1)
+    diag_idx = torch.repeat_interleave(torch.arange(5).unsqueeze(0), 2, dim=0)
+    Q0[*triu_idx] = c
+    Q0[*diag_idx] = -Q0.sum(dim=1)
+    return Q0
+
+
+def simulate_for_t(t, n, start_time=0, women=None, time_enter_state=None, Q=Q):
     assert (women is not None and time_enter_state is not None) \
         or (women is None and time_enter_state is None), "Inconsistent {women,time_enter_state} pair provided - provide both or neither."
     all_w_idx = torch.arange(n)
     
-    times = None if time_enter_state is None else time_enter_state.max(dim=1)[0]
+    times = None if time_enter_state is None \
+        else max(start_time, time_enter_state.max(dim=1)[0]) # ! not vector op
     if women is None:
         women = init_women(n, s0=0)
         time_enter_state = torch.zeros_like(women,dtype=torch.double)
         time_enter_state[:,1:] = -torch.inf
+        
     
     dead_mask = torch.zeros_like(all_w_idx).bool()
     time_mask = time_enter_state.max(dim=1)[0] < t
     mask = (~dead_mask)*time_mask
     while torch.any(mask):
-        if times is not None: women[mask],times[mask] = next_state(women[mask],times[mask], Q=Q)
+        if times is not None: 
+            women[mask],times[mask] = next_state(women[mask],times[mask], Q=Q)
         else: women,times = next_state(women, times, Q=Q)
         states = women.nonzero(as_tuple=True)[1]
         time_enter_state[all_w_idx,states] = times
@@ -255,10 +275,15 @@ def simulate_trajectories(time_series, obs_freq, Q=Q, num_retries=100000):
             if num_recreated > 0:
                 w0 = init_women(1, s0=int(out_ts[num_recreated-1]))
                 tes[0, int(out_ts[num_recreated-1])+1:] = -torch.inf
-                w, tes = simulate_for_t(obs_freq*(num_recreated+1), n=1, women=w0, time_enter_state=tes.clone(), Q=Q)
+                w, tes = simulate_for_t(obs_freq*(num_recreated+1), 
+                                        start_time=torch.ones(1,1,dtype=torch.double)*(obs_freq*num_recreated), 
+                                        n=1, 
+                                        women=w0, 
+                                        time_enter_state=tes.clone(), 
+                                        Q=Q)
             else:
                 w, tes = simulate_for_t(obs_freq*(num_recreated+1), n=1, Q=Q)
-            sample_ts = create_time_series(tes).squeeze()[num_recreated:]
+            sample_ts = create_time_series(tes).squeeze()[num_recreated+1:]
 
             max_comp_idx = min(len(ts) - num_recreated, len(sample_ts))
             slice_idx = torch.nonzero(~(sample_ts[:max_comp_idx] == ts[num_recreated:num_recreated+max_comp_idx]))
@@ -300,16 +325,57 @@ def expectation_maximization(Qinit=None, scale=1e-3, max_steps=10, num_retries=1
         Qk_p_1[*diag_idx] = -Qk_p_1.sum(dim=1)
         max_delta = torch.norm(Qk_p_1 - Qk, p=torch.inf)
         Qk = Qk_p_1.clone()
-        print(f"||{'Q_{k+1}'} - Q_k||_inf = {max_delta.item():.4f}")
+        display(Math(f"||{'Q_{k+1}'} - Q_k||_"+"{\\infty}"+ f"= {max_delta.item():.4f}"))
         if max_delta < 1e-3: # check for convergence
+            print("Convergence!")
             break
     return Qk
 
 
 # %%
-# Qinit = init_Q_random(scale=3e-3)
-Qinit = init_Q_heuristic(time_series)
-Qhat = expectation_maximization(max_steps=5, Qinit=Qinit, num_retries=10_000)
-# Qhat = expectation_maximization(max_steps=5, num_retries=10_000, scale=1e-2)
+# initialized randomly
+Qinit = init_Q_random(scale=1.3e-2)
+Qhat = expectation_maximization(max_steps=10, Qinit=Qinit.clone(), num_retries=100_000)
+
+# intialized const
+Qinit_c = init_Q_const(c=.1)
+Qhat_c = expectation_maximization(max_steps=10, Qinit=Qinit_c.clone(), num_retries=100_000)
+
+# initalized with heuristic
+Qinit2 = init_Q_heuristic(time_series)
+Qhat2 = expectation_maximization(max_steps=10, Qinit=Qinit2.clone(), num_retries=100_000)
 #%%
-Qhat = expectation_maximization(max_steps=5, Qinit=Qhat, num_retries=10_000)
+plt.rc('font',        size=20)          # controls default text sizes
+plt.rc('axes',   titlesize=32)     # fontsize of the axes title
+plt.rc('axes',   labelsize=25)     # fontsize of the x and y labels
+plt.rc('xtick',  labelsize=22)    # fontsize of the tick labels
+plt.rc('ytick',  labelsize=22)    # fontsize of the tick labels
+plt.rc('legend',  fontsize=25)    # legend fontsize
+plt.rc('figure', titlesize=25)   # fontsize of the figure title
+
+def plot_Q_with_cbar(fig, ax, _Q, cmap=None, vmin=None, vmax=None, cbar=True):
+    cax = ax.imshow(_Q, cmap=cmap, vmin=vmin, vmax=vmax)
+    ax.grid()
+    ax.set_xlabel("$j$")
+    ax.set_ylabel("$i$")
+    if cbar:
+        fig.colorbar(cax)
+
+fig,ax = plt.subplots(1,3,figsize=(23,6))
+
+plot_Q_with_cbar(fig, ax[0], Qinit, cmap='viridis')
+
+_vmin = min(Q.min(), Qhat.min())
+_vmax = max(Q.max(), Qhat.max())
+plot_Q_with_cbar(fig, ax[1], Qhat, vmin=_vmin, vmax=_vmax)
+plot_Q_with_cbar(fig, ax[2], Q, vmin=_vmin, vmax=_vmax)
+# plot_Q_with_cbar(fig, ax[0], Qinit2, vmin=_vmin, vmax=_vmax)
+
+
+ax[0].set_title("Initialization")
+ax[1].set_title("Estimation")
+ax[2].set_title("Ground truth")
+
+plt.tight_layout()
+# plt.show()
+plt.savefig("img/part3/mc_em_visualization_heur.pdf")
