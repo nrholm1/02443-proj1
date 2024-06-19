@@ -155,6 +155,53 @@ plt.tight_layout()
 plt.savefig("img/part3/timeseries_example.pdf")
 
 #%%
+def compute_q(time_enter):
+    sojourn_time = torch.zeros(5)
+    n_matrx = torch.zeros((5, 5))
+    for i in range(4):
+        for o in range(time_enter.shape[0]):
+            elements = time_enter[o].tolist()
+            if elements[i] == -torch.inf:
+                continue
+            successor = min(filter(lambda x: x > elements[i], elements))
+            sojourn_time[i] +=  successor - elements[i]
+
+            jump_to_index = elements.index(successor)
+            n_matrx[i,jump_to_index] += 1
+
+    q_matrix = torch.zeros((5, 5))
+    for i in range(4):
+        q_matrix[i] = n_matrx[i] / sojourn_time[i]
+    for i in range(4):
+        q_matrix[i,i] = -q_matrix[i].sum()
+    return q_matrix
+
+
+def find_next_state_change(current_state, timeseries):
+    next_state = list(filter(lambda x: x > current_state, timeseries.tolist()))[0]
+    return timeseries.tolist().index(next_state)
+
+
+def time_series_to_enter_state(time_s):
+    current_state = 0
+    updated_time_series = torch.ones(5) - torch.inf
+    updated_time_series[0] = 0.0
+
+    while(current_state != 4):
+        next_id   = find_next_state_change(current_state, time_s)
+        next_state = int(time_s[next_id].item())
+        updated_time_series[next_state] = next_id*48
+        current_state = next_state
+    return updated_time_series
+
+
+def init_Q_heuristic(time_series_):
+    approx_time_enter = []
+    for i in range(time_series_.shape[0]):
+        approx_time_enter.append(time_series_to_enter_state(time_series_[i]))
+    return compute_q(torch.stack(approx_time_enter))
+
+
 def init_Q_random(scale=1e-3):
     Q0 = torch.zeros(5,5)
     triu_idx = torch.triu_indices(5,5,offset=1)
@@ -260,7 +307,8 @@ def expectation_maximization(Qinit=None, scale=1e-3, max_steps=10, num_retries=1
 
 
 # %%
-Qinit = init_Q_random(scale=3e-3)
+# Qinit = init_Q_random(scale=3e-3)
+Qinit = init_Q_heuristic(time_series)
 Qhat = expectation_maximization(max_steps=5, Qinit=Qinit, num_retries=10_000)
 # Qhat = expectation_maximization(max_steps=5, num_retries=10_000, scale=1e-2)
 #%%
