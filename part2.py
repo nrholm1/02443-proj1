@@ -40,6 +40,12 @@ def next_state(women, times=None, Q=Q):
     stay_rates = - Q[states,states]
     if times is None:
         times = torch.zeros(women.shape[0],dtype=torch.double)
+
+    # Example of using Erlang Distribution
+    # L = torch.tensor([2,2,2,2,2], dtype=torch.double)
+    # k_vals = L[states]
+    # stay_times = td.Gamma(concentration=k_vals, rate=stay_rates).sample()
+
     stay_times = td.Exponential(stay_rates).sample()
     times[~dead_mask] += stay_times
 
@@ -51,6 +57,7 @@ def next_state(women, times=None, Q=Q):
     women[~dead_mask] = women[~dead_mask].scatter_(1,new_state,1)
 
     return women, times
+
 
 
 #%%
@@ -153,24 +160,39 @@ std_conf_interval = (torch.sqrt((n - 1) * std_lifetime**2 / chi2_upper),
                      torch.sqrt((n - 1) * std_lifetime**2 / chi2_lower))
 
 # Output results
+print(f"Median Lifetime: {sorted_sim_ts.median().item():.2f}")
 print(f"Mean Lifetime: {mean_lifetime.item():.2f}")
 print(f"Mean Confidence Interval: ({mean_conf_interval[0].item():.2f}, {mean_conf_interval[1].item():.2f})")
 print(f"Standard Deviation: {std_lifetime.item():.2f}")
 print(f"Standard Deviation Confidence Interval: ({std_conf_interval[0].item():.2f}, {std_conf_interval[1].item():.2f})")
 
 
+#%%
 from scipy.stats import chisquare
+from math import sqrt
 
+def kolmogorov_smirnov(observed_cdf_valus, actual_cdf_vals):
+    # Calculate the K-S statistic
+    d_statistic = torch.abs(observed_cdf_valus - actual_cdf_vals).max().item()
+    
+    adjusted_test_statistic = (sqrt(observed_cdf_valus.shape[0]) + 0.12 + 0.11/sqrt(observed_cdf_valus.shape[0]) ) * d_statistic
+    
+    return adjusted_test_statistic
 
-observed_freq = torch.histc(simCDF, bins=20)
-expected_freq = torch.histc(aCDF, bins=20)
+# observed_freq = torch.histc(simCDF, bins=20)
+# expected_freq = torch.histc(aCDF, bins=20)
 
+sim_dead = simCDF*1000
+a_dead = aCDF * 1000
 
-test_stat,p_value = chisquare(f_obs=observed_freq, f_exp=expected_freq)
-print(f"Test stat = {test_stat:.5f}")
-print(f"p-value = {p_value:.5f}")
+# test_stat,p_value = chisquare(f_obs=sim_dead, f_exp=a_dead)
+
+ks_statistic, p_value = scipy.stats.kstest(sorted_sim_ts.tolist(), lambda _: aCDF.tolist())
+
 
 # ! p-value not quite matching?
+
+# %%
 
 #%%
 # ! TASK 9
