@@ -83,7 +83,7 @@ def simulate_until_death(n, Q=Q):
     return time_enter_state
 
 
-def create_time_series(time_enter_state):
+def create_time_series(time_enter_state, n=n):
     """
     Given a time_enter_state tensor, compute time-series.
     """
@@ -106,7 +106,7 @@ def create_time_series(time_enter_state):
 
         k = 0
         for j,ts_p in enumerate(ts_points):
-            if not ts_p < tval[k+1]:
+            if k+1 < tval.shape[0] and not ts_p < tval[k+1]:
                 k += 1
             time_series[i,j] = sval[k]
             if sval[k] == 4:
@@ -145,6 +145,187 @@ plt.tight_layout()
 # plt.show()
 plt.savefig("img/part3/timeseries_example.pdf")
 
+
+
+#%%
+# From time_enter_state compute N and S
+def compute_q(time_enter):
+    sojourn_time = torch.zeros(5)
+    n_matrx = torch.zeros((5, 5))
+    for i in range(4):
+        for o in range(time_enter.shape[0]):
+            elements = time_enter[o].tolist()
+            if elements[i] == -torch.inf:
+                continue
+
+            successor = min(filter(lambda x: x > elements[i], elements))
+            sojourn_time[i] +=  successor - elements[i]
+
+            jump_to_index = elements.index(successor)
+            n_matrx[i,jump_to_index] += 1
+
+    q_matrix = torch.zeros((5, 5))
+    for i in range(4):
+        q_matrix[i] = n_matrx[i] / sojourn_time[i]
+    for i in range(4):
+        q_matrix[i,i] = -q_matrix[i].sum()
+
+    return q_matrix
+
+
+compute_q(time_enter_state)
+
+#%%
+def next_state(women, times=None, Q=Q):
+    """
+    Simulates a single step for a batch of subjects (women),
+        according to a CTMC specified by transition rate matrix Q.
+    """
+    states = women.nonzero(as_tuple=True)[1]
+    dead_mask = states == 4
+    states = states[~dead_mask]
+
+    stay_rates = - Q[states,states]
+    if times is None:
+        times = torch.zeros(women.shape[0],dtype=torch.double)
+    stay_times = td.Exponential(stay_rates).sample()
+    times[~dead_mask] += stay_times
+
+    jump_dist = - Q[states] / Q[states,states].unsqueeze(1)
+    jump_dist[torch.arange(len(states)), states] = 0
+
+    new_state = torch.multinomial(jump_dist, 1)
+    women[~dead_mask] = women[~dead_mask].fill_(0)
+    women[~dead_mask] = women[~dead_mask].scatter_(1,new_state,1)
+
+    return women, times
+
+def find_next_state_change(current_state, timeseries):
+    next_state = list(filter(lambda x: x > current_state, timeseries.tolist()))[0]
+    return timeseries.tolist().index(next_state)
+
+def simulate_to_replicate_time_series(time_series, q_matrix):
+    new_time_series = []
+    for i in range(time_series.shape[0]):
+        all_w_idx = torch.arange(1)
+        current_woman = init_women(1)
+        time_enter_state = torch.zeros_like(current_woman,dtype=torch.double)
+        time_enter_state[:,1:] = -torch.inf
+        current_times = None
+
+        next_index = find_next_state_change(0, time_series[i])
+        next_time = next_index*48
+        counter = 0
+
+
+        while(True):
+            # print(current_woman)
+            # print(current_times)
+            # print(time_enter_state)
+
+            current_woman_before = current_woman.clone()
+            current_times_before = None if current_times == None else current_times.clone()
+            time_enter_state_before = time_enter_state.clone()
+
+
+            current_woman, current_times = next_state(current_woman,current_times,Q=Q)
+            states = current_woman.nonzero(as_tuple=True)[1]
+            time_enter_state[all_w_idx,states] = current_times
+            
+
+            next_time_sim = current_times[0].item()
+            state_updated_to = current_woman[0].tolist().index(1)
+
+            # print(next_time_sim)
+            if next_time_sim < next_time and next_time_sim > next_time - 48 and state_updated_to == int(time_series[i][next_index].item()):
+                # print("Success")
+                # print(time_enter_state)
+                # print(counter)
+                sim_time_series = create_time_series(time_enter_state, n=1)[0]
+                # print(sim_time_series)
+                # print(state_updated_to)
+                
+                if state_updated_to == 4:
+                    # print(time_enter_state)
+                    break
+
+                next_index = find_next_state_change(state_updated_to, time_series[i])
+                next_time = next_index*48
+
+                
+            else:
+                current_woman = current_woman_before.clone()
+                current_times = None if current_times_before == None else current_times_before.clone()
+                time_enter_state = time_enter_state_before.clone()
+
+            # sim_time_series = create_time_series(time_enter_state, n=1)[0]
+            
+
+            
+
+            counter += 1
+        # print(next_time)
+        # print(next_s)
+        # print("FOUND ONE")
+        new_time_series.append(time_enter_state[0].tolist())
+    return torch.tensor(new_time_series)
+
+
+def initate_q_matrix():
+    q_matrix = torch.zeros((5,5))
+    for i in range(4):
+        for o in range(5):
+            if o >= i:
+                q_matrix[i,o] = 1
+    for i in range(4):
+        q_matrix[i,i] = -q_matrix[i].sum()
+    return q_matrix
+
+
+def optimize(time_series_input):
+    q_matrix = initate_q_matrix()
+    while(True):
+        new_time_enter_state = simulate_to_replicate_time_series(time_series_input, q_matrix)
+        print("Completed simulation!")
+        new_q = compute_q(new_time_enter_state)
+        if (q_matrix - new_q).norm() < 0.001:
+            return new_q
+        q_matrix = new_q
+
+
+optimize(time_series)
+
+
+
+
+
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
+# %%
+
 #%%
 def init_Q():
     Q0 = torch.zeros(5,5)
@@ -181,3 +362,4 @@ def simulate_for_t(t, n, women=None, time_enter_state=None, Q=Q):
     return women, time_enter_state
 
 simulate_for_t(48, n=10)
+
