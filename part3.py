@@ -201,8 +201,9 @@ def next_state(women, times=None, Q=Q):
     return women, times
 
 def find_next_state_change(current_state, timeseries):
-    next_state = list(filter(lambda x: x > current_state, timeseries.tolist()))[0]
-    return timeseries.tolist().index(next_state)
+    next_state_index = (timeseries > current_state).nonzero(as_tuple=True)[0].min().item()
+    return next_state_index
+
 
 def simulate_to_replicate_time_series(time_series, q_matrix):
     new_time_series = []
