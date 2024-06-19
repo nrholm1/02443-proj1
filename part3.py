@@ -155,7 +155,7 @@ plt.tight_layout()
 plt.savefig("img/part3/timeseries_example.pdf")
 
 #%%
-def init_Q(scale=1e-3):
+def init_Q_random(scale=1e-3):
     Q0 = torch.zeros(5,5)
     triu_idx = torch.triu_indices(5,5,offset=1)
     diag_idx = torch.repeat_interleave(torch.arange(5).unsqueeze(0), 2, dim=0)
@@ -242,7 +242,7 @@ def simulate_trajectories(time_series, obs_freq, Q=Q, num_retries=100000):
 
 
 def expectation_maximization(Qinit=None, scale=1e-3, max_steps=10, num_retries=1_000):
-    Qk = init_Q(scale=scale) if Qinit is None else Qinit
+    Qk = init_Q_random(scale=scale) if Qinit is None else Qinit
     step = 0
     while step < max_steps:
         step += 1
@@ -260,7 +260,8 @@ def expectation_maximization(Qinit=None, scale=1e-3, max_steps=10, num_retries=1
 
 
 # %%
-Qinit = init_Q(scale=1)
+Qinit = init_Q_random(scale=3e-3)
 Qhat = expectation_maximization(max_steps=5, Qinit=Qinit, num_retries=10_000)
 # Qhat = expectation_maximization(max_steps=5, num_retries=10_000, scale=1e-2)
 #%%
+Qhat = expectation_maximization(max_steps=5, Qinit=Qhat, num_retries=10_000)
