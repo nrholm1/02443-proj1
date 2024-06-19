@@ -216,8 +216,8 @@ plt.rc('figure', titlesize=25)   # fontsize of the figure title
 
 fig,ax = plt.subplots(1,1,figsize=(15,6))
 
-ax.plot(ts, ratio_alive,   label='[w/o treatment] Sim. S(t)', linewidth=2, color='red')
-ax.plot(ts2, ratio_alive2, label='[w/ treatment] Sim. S(t)' , linewidth=3, linestyle=':', color='green')
+ax.plot(ts, ratio_alive,   label='[no treatment] Sim. S(t)', linewidth=2, color='red')
+ax.plot(ts2, ratio_alive2, label='[treatment] Sim. S(t)' , linewidth=3, linestyle=':', color='green')
 
 ax.set_xlabel("$t$")
 ax.legend()
